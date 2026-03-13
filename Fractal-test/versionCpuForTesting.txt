@@ -1,0 +1,92 @@
+#include <stdio.h>
+#include <cmath>
+#include <chrono>
+#include <fstream>
+#include "common/cpu_bitmap.h"
+
+struct cuComplex {
+    float r, i;
+
+    cuComplex(float a, float b) : r(a), i(b) {}
+
+    float magnitude2(void) const {
+        return r * r + i * i;
+    }
+
+    cuComplex operator*(const cuComplex& a) const {
+        return cuComplex(r * a.r - i * a.i, i * a.r + r * a.i);
+    }
+
+    cuComplex operator+(const cuComplex& a) const {
+        return cuComplex(r + a.r, i + a.i);
+    }
+};
+
+int julia(int x, int y, int DIM, int ITERATIONS) {
+    const float scale = 1;
+    float jx = scale * (float)(DIM / 2 - x) / (DIM / 2);
+    float jy = scale * (float)(DIM / 2 - y) / (DIM / 2);
+
+    cuComplex c(-0.8f, 0.156f);
+    cuComplex a(jx, jy);
+
+    for (int i = 0; i < ITERATIONS; i++) {
+        a = a * a + c;
+        if (a.magnitude2() > 1000) return i;
+    }
+
+    return ITERATIONS;
+}
+
+float render(int DIM, int ITERATIONS) {
+    CPUBitmap bitmap(DIM, DIM);
+    unsigned char* ptr = bitmap.get_ptr();
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int y = 0; y < DIM; y++) {
+        for (int x = 0; x < DIM; x++) {
+            int offset = x + y * DIM;
+            int juliaValue = julia(x, y, DIM, ITERATIONS);
+            unsigned char color = static_cast<unsigned char>(255.0f * juliaValue / ITERATIONS);
+            ptr[offset * 4 + 0] = color;
+            ptr[offset * 4 + 1] = color;
+            ptr[offset * 4 + 2] = color;
+            ptr[offset * 4 + 3] = 255;
+        }
+    }
+
+    auto stop = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<float, std::milli> duration = stop - start;
+
+    return duration.count();
+}
+
+int main() {
+    int dims[] = { 500, 1000 };
+    int iterations[] = { 250, 500, 750 };
+
+    std::ofstream logfile("results.txt");
+    if (!logfile) {
+        fprintf(stderr, "Error opening file for writing.\n");
+        return 1;
+    }
+
+    logfile << "CPU Fractal Timing Results\n";
+    logfile << "--------------------------\n";
+    logfile << "DIM\tITERATIONS\tTIME(ms)\n";
+
+    for (int d = 0; d < sizeof(dims) / sizeof(dims[0]); d++) {
+        for (int i = 0; i < sizeof(iterations) / sizeof(iterations[0]); i++) {
+            int dim = dims[d];
+            int iters = iterations[i];
+            float time_ms = render(dim, iters);
+
+            logfile << dim << "\t" << iters << "\t\t" << time_ms << "\n";
+            printf("Logged: DIM=%d, ITERATIONS=%d, Time=%.2f ms\n", dim, iters, time_ms);
+        }
+    }
+
+    logfile.close();
+    return 0;
+}

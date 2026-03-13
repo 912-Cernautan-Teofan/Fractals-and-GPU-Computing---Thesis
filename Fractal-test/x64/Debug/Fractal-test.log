@@ -1,0 +1,18 @@
+﻿  Compiling CUDA source file GPUPitchedBlock.cu...
+  
+  D:\teme\Fractal-test\Fractal-test>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin\nvcc.exe" -gencode=arch=compute_52,code=\"sm_52,compute_52\" --use-local-env -ccbin "D:\Visual Studio 2022\VC\Tools\MSVC\14.42.34433\bin\HostX64\x64" -x cu   -I"C:\GLFW\glfw-3.4.bin.WIN64\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\include"  -G   --keep-dir x64\Debug  -maxrregcount=0   --machine 64 --compile -cudart static  -g  -DWIN32 -DWIN64 -D_DEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/Fdx64\Debug\vc143.pdb" -o D:\teme\Fractal-test\Fractal-test\x64\Debug\GPUPitchedBlock.cu.obj "D:\teme\Fractal-test\Fractal-test\GPUPitchedBlock.cu" 
+D:\teme\Fractal-test\Fractal-test\common/cpu_bitmap.h(49): warning #2464-D: conversion from a string literal to "char *" is deprecated
+            char* dummy = "";
+                          ^
+  
+  Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+  
+D:\teme\Fractal-test\Fractal-test\common/cpu_bitmap.h(49): warning #2464-D: conversion from a string literal to "char *" is deprecated
+            char* dummy = "";
+                          ^
+  
+  Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+  
+  GPUPitchedBlock.cu
+  tmpxft_000039c0_00000000-7_GPUPitchedBlock.cudafe1.cpp
+  Fractal-test.vcxproj -> D:\teme\Fractal-test\x64\Debug\Fractal-test.exe

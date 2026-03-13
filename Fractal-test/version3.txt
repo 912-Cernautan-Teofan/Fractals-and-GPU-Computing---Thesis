@@ -1,0 +1,147 @@
+#include "common/book.h"
+#include <stdio.h>
+#include "common/cpu_bitmap.h"
+#include <cuda_runtime.h>
+
+#define DIM 1000
+#define ITERATIONS 500
+
+struct cuComplex
+{
+    float r, i;
+
+    __device__ cuComplex(float a, float b) : r(a), i(b) {}
+
+    __device__ float magnitude2(void)
+    {
+        return r * r + i * i;
+    }
+
+    __device__ cuComplex operator*(const cuComplex& a)
+    {
+        return cuComplex(r * a.r - i * a.i, i * a.r + r * a.i);
+    }
+
+    __device__ cuComplex operator+(const cuComplex& a)
+    {
+        return cuComplex(r + a.r, i + a.i);
+    }
+};
+
+__device__ int julia(int x, int y)
+{
+    const float scale = 1.5;
+    float jx = scale * (float)(DIM / 2 - x) / (DIM / 2);
+    float jy = scale * (float)(DIM / 2 - y) / (DIM / 2);
+
+    cuComplex c(-0.8, 0.156);
+    cuComplex a(jx, jy);
+
+    int i = 0;
+    for (i = 0; i < ITERATIONS; i++)
+    {
+        a = a * a + c;
+        if (a.magnitude2() > 1000)
+        {
+            break;
+        }
+    }
+
+    return i;
+}
+
+/*
+__global__ void kernel(unsigned char* ptr, size_t pitch)
+{
+    int x = threadIdx.x + blockIdx.x * blockDim.x;
+    int y = threadIdx.y + blockIdx.y * blockDim.y;
+
+    if (x < DIM && y < DIM)
+    {
+        // Compute row pointer using pitch
+        unsigned char* row = (unsigned char*)((char*)ptr + y * pitch);
+        int offset = x * 4;
+
+        // Compute Julia set value
+        int juliaValue = julia(x, y);
+
+        // Normalize color [0, 255]
+        unsigned char color = (unsigned char)(255 * (float)juliaValue / ITERATIONS);
+
+        row[offset + 0] = color;  // Red
+        row[offset + 1] = color;  // Green
+        row[offset + 2] = color;  // Blue
+        row[offset + 3] = 255;    // Alpha
+    }
+}
+*/
+
+__global__ void kernel(unsigned char* ptr, size_t pitch)
+{
+    int x = threadIdx.x + blockIdx.x * blockDim.x;
+    int y = threadIdx.y + blockIdx.y * blockDim.y;
+
+    if (x < DIM && y < DIM)
+    {
+        // Compute row pointer using pitch
+        unsigned char* row = (unsigned char*)((char*)ptr + y * pitch);
+        int offset = x * 4;
+
+        // Compute Julia set value
+        int juliaValue = julia(x, y);
+
+        // Apply psychedelic color mapping
+        row[offset + 0] = juliaValue % 256;
+        row[offset + 1] = (juliaValue * 2) % 256;
+        row[offset + 2] = (juliaValue * 3) % 256;
+        row[offset + 3] = 255;  // Alpha channel
+    }
+}
+
+
+int main(void)
+{
+    CPUBitmap bitmap(DIM, DIM);
+    unsigned char* dev_bitmap;
+    size_t pitch;
+
+    // Allocate pitched memory
+    cudaMallocPitch(&dev_bitmap, &pitch, DIM * 4, DIM);
+
+    // Create CUDA events for timing
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    // Record the start time
+    cudaEventRecord(start, 0);
+
+    // Define grid and block size
+    dim3 blockSize(16, 16);
+    dim3 gridSize((DIM + 15) / 16, (DIM + 15) / 16);
+
+    // Launch the kernel
+    kernel << <gridSize, blockSize >> > (dev_bitmap, pitch);
+
+    // Record the stop time
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+
+    // Calculate elapsed time
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Kernel execution time: %.2f ms\n", milliseconds);
+
+    // Copy data back to host using cudaMemcpy2D
+    cudaMemcpy2D(bitmap.get_ptr(), DIM * 4, dev_bitmap, pitch, DIM * 4, DIM, cudaMemcpyDeviceToHost);
+
+    // Display image
+    bitmap.display_and_exit();
+
+    // Free memory and destroy events
+    cudaFree(dev_bitmap);
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
+    return 0;
+}

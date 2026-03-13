@@ -1,0 +1,114 @@
+#include "common/book.h"
+#include <stdio.h>
+#include <cuda_runtime.h>
+
+struct cuComplex
+{
+    float r, i;
+
+    __device__ cuComplex(float a, float b) : r(a), i(b) {}
+
+    __device__ float magnitude2() const
+    {
+        return r * r + i * i;
+    }
+
+    __device__ cuComplex operator*(const cuComplex& a) const
+    {
+        return cuComplex(r * a.r - i * a.i, i * a.r + r * a.i);
+    }
+
+    __device__ cuComplex operator+(const cuComplex& a) const
+    {
+        return cuComplex(r + a.r, i + a.i);
+    }
+};
+
+__device__ int julia(int x, int y, int DIM, int ITERATIONS)
+{
+    const float scale = 1.0f;
+    float jx = scale * (float)(DIM / 2 - x) / (DIM / 2);
+    float jy = scale * (float)(DIM / 2 - y) / (DIM / 2);
+
+    cuComplex c(-0.8f, 0.156f);
+    cuComplex a(jx, jy);
+
+    for (int i = 0; i < ITERATIONS; i++)
+    {
+        a = a * a + c;
+        if (a.magnitude2() > 1000)
+            return i;
+    }
+
+    return ITERATIONS;
+}
+
+__global__ void kernel(unsigned char* ptr, int DIM, int ITERATIONS)
+{
+    int x = blockIdx.x;
+    int y = blockIdx.y;
+    int offset = x + y * gridDim.x;
+
+    int juliaValue = julia(x, y, DIM, ITERATIONS);
+    unsigned char color = (unsigned char)(255 * (float)juliaValue / ITERATIONS);
+
+    ptr[offset * 4 + 0] = color;
+    ptr[offset * 4 + 1] = color;
+    ptr[offset * 4 + 2] = color;
+    ptr[offset * 4 + 3] = 255;
+}
+
+int main()
+{
+    int dims[] = { 2000, 4000, 6000, 8000, 10000, 12000, 14000, 16000 };
+    int iterations[] = { 250, 500, 1000, 2000 };
+
+    FILE* logfile = fopen("gpu_unified_results.txt", "w");
+    if (!logfile)
+    {
+        fprintf(stderr, "Error opening gpu_unified_results.txt\n");
+        return 1;
+    }
+
+    fprintf(logfile, "GPU Unified Memory Fractal Timing Results\n");
+    fprintf(logfile, "DIM\tITERATIONS\tTime(ms)\n");
+
+    for (int d = 0; d < sizeof(dims) / sizeof(dims[0]); ++d)
+    {
+        for (int i = 0; i < sizeof(iterations) / sizeof(iterations[0]); ++i)
+        {
+            int DIM = dims[d];
+            int ITER = iterations[i];
+            size_t image_size = DIM * DIM * 4;
+            unsigned char* bitmap;
+
+            HANDLE_ERROR(cudaMallocManaged(&bitmap, image_size));
+
+            cudaEvent_t start, stop;
+            cudaEventCreate(&start);
+            cudaEventCreate(&stop);
+
+            cudaEventRecord(start, 0);
+            dim3 grid(DIM, DIM);
+            kernel << <grid, 1 >> > (bitmap, DIM, ITER);
+            cudaEventRecord(stop, 0);
+
+            cudaEventSynchronize(stop);
+            cudaDeviceSynchronize();
+
+            float milliseconds = 0;
+            cudaEventElapsedTime(&milliseconds, start, stop);
+
+            fprintf(logfile, "%d\t%d\t%.2f\n", DIM, ITER, milliseconds);
+            printf("Unified: DIM = %d, ITER = %d -> %.2f ms\n", DIM, ITER, milliseconds);
+
+            cudaFree(bitmap);
+            cudaEventDestroy(start);
+            cudaEventDestroy(stop);
+        }
+    }
+
+    fclose(logfile);
+    return 0;
+}
+    

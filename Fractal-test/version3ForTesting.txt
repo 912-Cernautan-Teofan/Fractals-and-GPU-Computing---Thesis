@@ -1,0 +1,117 @@
+#include "common/book.h"
+#include <stdio.h>
+#include <cuda_runtime.h>
+
+struct cuComplex
+{
+    float r, i;
+
+    __device__ cuComplex(float a, float b) : r(a), i(b) {}
+
+    __device__ float magnitude2() const { return r * r + i * i; }
+
+    __device__ cuComplex operator*(const cuComplex& a) const
+    {
+        return cuComplex(r * a.r - i * a.i, i * a.r + r * a.i);
+    }
+
+    __device__ cuComplex operator+(const cuComplex& a) const
+    {
+        return cuComplex(r + a.r, i + a.i);
+    }
+};
+
+__device__ int julia(int x, int y, int DIM, int ITER)
+{
+    const float scale = 1.5f;
+    float jx = scale * (float)(DIM / 2 - x) / (DIM / 2);
+    float jy = scale * (float)(DIM / 2 - y) / (DIM / 2);
+
+    cuComplex c(-0.8f, 0.156f);
+    cuComplex a(jx, jy);
+
+    for (int i = 0; i < ITER; i++)
+    {
+        a = a * a + c;
+        if (a.magnitude2() > 1000)
+            return i;
+    }
+
+    return ITER;
+}
+
+__global__ void kernel(unsigned char* ptr, size_t pitch, int DIM, int ITER)
+{
+    int x = threadIdx.x + blockIdx.x * blockDim.x;
+    int y = threadIdx.y + blockIdx.y * blockDim.y;
+
+    if (x < DIM && y < DIM)
+    {
+        unsigned char* row = (unsigned char*)((char*)ptr + y * pitch);
+        int offset = x * 4;
+
+        int juliaValue = julia(x, y, DIM, ITER);
+
+        // Simple grayscale mapping
+        unsigned char color = (unsigned char)(255.0f * (float)juliaValue / ITER);
+        row[offset + 0] = color;
+        row[offset + 1] = color;
+        row[offset + 2] = color;
+        row[offset + 3] = 255;
+    }
+}
+
+int main()
+{
+    int dims[] = { 2000, 4000, 6000, 8000, 10000, 12000, 14000, 16000 };
+    int iterations[] = { 250, 500, 1000, 2000 };
+
+    FILE* logfile = fopen("gpu_pitched_results.txt", "w");
+    if (!logfile)
+    {
+        fprintf(stderr, "Failed to open gpu_pitched_results.txt\n");
+        return 1;
+    }
+
+    fprintf(logfile, "GPU Pitched Memory Fractal Timing Results\n");
+    fprintf(logfile, "DIM\tITERATIONS\tTime(ms)\n");
+
+    for (int d = 0; d < sizeof(dims) / sizeof(dims[0]); ++d)
+    {
+        for (int i = 0; i < sizeof(iterations) / sizeof(iterations[0]); ++i)
+        {
+            int DIM = dims[d];
+            int ITER = iterations[i];
+            unsigned char* dev_bitmap;
+            size_t pitch;
+
+            cudaMallocPitch(&dev_bitmap, &pitch, DIM * 4, DIM);
+
+            dim3 blockSize(16, 16);
+            dim3 gridSize((DIM + 15) / 16, (DIM + 15) / 16);
+
+            cudaEvent_t start, stop;
+            cudaEventCreate(&start);
+            cudaEventCreate(&stop);
+            cudaEventRecord(start, 0);
+
+            kernel << <gridSize, blockSize >> > (dev_bitmap, pitch, DIM, ITER);
+
+            cudaEventRecord(stop, 0);
+            cudaEventSynchronize(stop);
+
+            float milliseconds = 0;
+            cudaEventElapsedTime(&milliseconds, start, stop);
+
+            printf("Pitched: DIM = %d, ITER = %d -> %.2f ms\n", DIM, ITER, milliseconds);
+            fprintf(logfile, "%d\t%d\t%.2f\n", DIM, ITER, milliseconds);
+
+            cudaFree(dev_bitmap);
+            cudaEventDestroy(start);
+            cudaEventDestroy(stop);
+        }
+    }
+
+    fclose(logfile);
+    return 0;
+}
